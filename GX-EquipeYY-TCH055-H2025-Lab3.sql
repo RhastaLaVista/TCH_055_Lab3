@@ -14,7 +14,7 @@
 -- Question 1 
 
 CREATE OR REPLACE TRIGGER TRG_update_stock
-BEFORE UPDATE ON PRODUIT
+BEFORE UPDATE OF QUANTITE_STOCK ON PRODUIT
 FOR EACH ROW
 DECLARE
     v_ldp_livree Livraison_Commande_Produit.QUANTITE_LIVREE%TYPE;
@@ -25,6 +25,7 @@ BEGIN
     INTO v_ldp_livree
     FROM Livraison_Commande_Produit
     WHERE Livraison_Commande_Produit.NO_PRODUIT = :NEW.REF_PRODUIT;
+
 
 
     IF v_ldp_livree > :NEW.QUANTITE_STOCK THEN
@@ -43,6 +44,19 @@ END;
 -- -----------------------------------------------------------------------------
 -- Question 2
 -- -----------------------------------------------------------------------------
+
+CREATE OR REPLACE TRIGGER TRG_command_stock
+BEFORE UPDATE OF QUANTITE_STOCK ON PRODUIT
+FOR EACH ROW
+BEGIN
+
+    IF :NEW.QUANTITE_STOCK < :NEW.QUANTITE_SEUIL THEN
+    INSERT INTO APPROVISIONNEMENT(NO_PRODUIT, CODE_FOURNISSEUR, QUANTITE_APPROVIS, DATE_CMD_APPROVIS, STATUT)
+    VALUES(:NEW.REF_PRODUIT, :NEW.CODE_FOURNISSEUR_PRIORITAIRE, :NEW.QUANTITE_SEUIL*1.10, CURRENT_DATE, 'ENCOURS');
+    END IF;
+
+END;
+/
 
 
 -- Il faut aussi Implémenter la requête mettant en action le déclencheur. Pour cela, réduisez la quantité en stock du
