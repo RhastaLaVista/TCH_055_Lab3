@@ -13,42 +13,29 @@
 -- -----------------------------------------------------------------------------
 -- Question 1 
 
-
 CREATE OR REPLACE TRIGGER TRG_update_stock
 BEFORE UPDATE ON PRODUIT
 FOR EACH ROW
 DECLARE
-    CURSOR livree_stock IS 
-        SELECT * FROM Livraison_Commande_Produit
-        INNER JOIN PRODUIT ON Livraison_Commande_Produit.NO_PRODUIT = PRODUIT.REF_PRODUIT;
-    
     v_ldp_livree Livraison_Commande_Produit.QUANTITE_LIVREE%TYPE;
-    v_p_stock Produit.QUANTITE_STOCK%TYPE;
-    v_p_ref Produit.REF_PRODUIT%TYPE;
+    E_STOCK_INSUFFISANT EXCEPTION;
 BEGIN
-   OPEN livree_stock;
-   LOOP
-        FETCH livree_stock INTO v_ldp_livree, v_p_stock, v_p_ref;
 
-        IF v_ldp_livree <= v_p_stock THEN 
-         UPDATE PRODUIT
-         SET QUANTITE_SEUIL = v_p_stock - v_ldp_livree
-         WHERE REF_PRODUIT = v_p_ref; 
+    SELECT SUM(QUANTITE_LIVREE) 
+    INTO v_ldp_livree
+    FROM Livraison_Commande_Produit
+    WHERE Livraison_Commande_Produit.NO_PRODUIT = :NEW.REF_PRODUIT;
 
-        EXIT WHEN livree_stock%NOTFOUND; 
-   
-   ELSE RAISE E_STOCK_INSUFFISANT;
-   END IF;
 
-   END LOOP
-
-   CLOSE livree_stock;
+    IF v_ldp_livree > :NEW.QUANTITE_STOCK THEN
+        RAISE E_STOCK_INSUFFISANT;
+    END IF;
 
 EXCEPTION
-   WHEN E_STOCK_INSUFFISANT THEN
-         RETURN 1; -- Idk what to do with error
+    WHEN E_STOCK_INSUFFISANT THEN
+        RAISE_APPLICATION_ERROR(-20001, 'Pas assez de produit en stock pour livrer.');
 END;
-
+/
 -- -----------------------------------------------------------------------------
 
 
@@ -56,24 +43,6 @@ END;
 -- -----------------------------------------------------------------------------
 -- Question 2
 -- -----------------------------------------------------------------------------
-CREATE OR REPLACE TRIGGER TRG_command_stock
-AFTER UPDATE OF QUANTITE_STOCK ON Produit
-FOR EACH ROW
-
-BEGIN
-
-   SELECT * FROM Produit
-   
-   IF :OLD.Produit.QUANTITE_STOCK < :OLD.Produit.QUANTITE_SEUIL THEN
-   :NEW.Approvisionnement.QUANTITE_APPROVIS := OLD.Produit.QUANTITE_SEUIL * 1.1;
-   :NEW.Approvisionnement.DATE_CMD_APPROVIS := *--DATE_AUJOURDHUI--*;  -- IL faut mettre la date d'aujourd'huis
-   :NEW.Approvisionnement.STATUS := 'EN_COURS';
-   :NEW.Approvisionnement.NO_PRODUIT := OLD.Produit.REF_PRODUIT;
-   :NEW.Approvisionnement.CODE_FOURNISSEUR := OLD.Produit.CODE_FOURNISSEUR_PRIORITAIRE;
-   
-   END IF;
-   RETURN
-END;
 
 
 -- Il faut aussi Implémenter la requête mettant en action le déclencheur. Pour cela, réduisez la quantité en stock du
