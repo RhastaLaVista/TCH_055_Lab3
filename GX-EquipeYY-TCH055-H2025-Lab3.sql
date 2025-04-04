@@ -195,124 +195,134 @@ SELECT f_quantite_deja_livree('ABC123', 37) FROM DUAL;
 -- Question 5
 -- -----------------------------------------------------------------------------
 
--- ============================================================
-
 SET  SERVEROUTPUT ON;
 
-CREATE OR REPLACE PROCEDURE p_Etat_Stock
-(produit Produit.code_produit%TYPE , seuil NUMBER) IS
---Déclarations de variables
-qte_stock   NUMBER(10); -- la quantité en stocke de produit
+CREATE OR REPLACE PROCEDURE p_afficher_livraisons_clients IS
+    
+    CURSOR c_commandes IS
+        SELECT Commande.no_commande, Commande.no_client
+        FROM Commande;
+
+    v_quantite_livree NUMBER;
 
 BEGIN
-    --Interrogation de la base de donn.es
-        SELECT quantite
-        INTO qte_stock
-        FROM Produit
-        WHERE code_produit = produit;
-    --Affichage de l'état du stock
-        IF qte_stock > seuil THEN
-            DBMS_OUTPUT.PUT_LINE('L article ' || produit ||' est en stock');
-        ELSIF  qte_stock >0 THEN
-            DBMS_OUTPUT.PUT_LINE('L article ' || produit ||' est bient�t en rupture de stock');
-        ELSE
-            DBMS_OUTPUT.PUT_LINE('L article ' || produit ||' est en rupture de stock');
-        END IF;
-END;
+    FOR commande_rec IN c_commandes LOOP
+
+        FOR produit_rec IN
+            SELECT p.ref_produit, p.designation, Commande_Produit.quantite_commandee
+            FROM Commande_Produit Commande_Produit
+            JOIN Produit p ON Commande_Produit.no_produit = p.ref_produit
+            WHERE Commande_Produit.no_commande = commande_rec.no_commande
+        LOOP
+            v_quantite_livree := f_quantite_deja_livree(produit_rec.ref_produit, commande_rec.no_commande);
+            
+            DBMS_OUTPUT.PUT_LINE('Client: ' || commande_rec.no_client || 
+                                 ', Commande N°: ' || commande_rec.no_commande || 
+                                 ', Produit: ' || produit_rec.ref_produit || 
+                                 ', ' || produit_rec.designation || 
+                                 ', Quantité Commandée: ' || produit_rec.quantite_commandee ||
+                                 ', Quantité Livrée: ' || v_quantite_livree);
+        END LOOP;
+    END LOOP;
+END p_afficher_livraisons_clients;
 /
--- Execution de la procédure
-EXEC p_Etat_Stock ( '05W34', 100);
 
 -- -----------------------------------------------------------------------------
 -- Question 6
 -- -----------------------------------------------------------------------------
 
-SET  SERVEROUTPUT ON;
+CREATE OR REPLACE PROCEDURE p_preparer_livraison (
+    p_no_livraison IN NUMBER
+) IS
 
-CREATE OR REPLACE PROCEDURE p_preparer_livraison
-(Livraison_Commande_Produit p_no_livraison NUMBER) IS
+    -- Déclarations de variables
+    v_nom_client   VARCHAR2(30);
+    v_prenom_client VARCHAR2(30);
+    v_telephone_client VARCHAR2(15);
+    v_id_adresse NUMBER(5);
+    v_no_civique NUMBER(6);
+    v_nom_rue VARCHAR2(20);
+    v_ville VARCHAR2(20);
+    v_pays VARCHAR2(20);
+    v_code_postal VARCHAR2(8);
+    v_no_livraison NUMBER(5);
+    v_date_livraison DATE;
 
---Déclarations de variables
-v_nom_client   VARCHAR2(30);
-v_prenom_client VARCHAR2(30);
-v_telephone_client VARCHAR2(15);
-v_id_adresse NUMBER(5);
-v_no_civique NUMBER(6);
-v_nom_rue VARCHAR2(20);
-v_ville VARCHAR2(20);
-v_pays VARCHAR2(20);
-v_code_postal VARCHAR2(8);
-v_no_livraison NUMBER(5);
-v_date_livraison DATE;
+    v_ref_produit VARCHAR2(6);
+    v_nom_produit VARCHAR2(30);
+    v_marque VARCHAR2(30);
+    v_quantite_livree NUMBER(6);
+    v_no_commande NUMBER(5);
+    v_date_commande DATE;
 
-v_ref_produit VARCHAR2(6);
-v_nom_produit VARCHAR2(30);
-v_marque VARCHAR2(30);
-v_quantite_livree NUMBER(6);
-v_no_commande NUMBER(5);
-v_date_commande DATE;
-
-CURSOR c_livraison_items IS
-    SELECT Produit.ref_produit,
-           Produit.nom_produit,
-           Produit.marque,
-           Livraison_Commande_Produit.quantite_livree,
-           Livraison_Commande_Produit.no_commande,
-           Commande.date_commande
-    FROM Livraison_Commande_Produit
-    JOIN Commande_Produit ON Commande_Produit.no_produit = Livraison_Commande_Produit.no_produit
-    JOIN Produit ON Produit.ref_produit = Commande_Produit.no_produit
-    JOIN Commande ON Commande.no_commande = Livraison_Commande_Produit.no_commande
-    WHERE Livraison_Commande_Produit.no_livraison = p_no_livraison;
+    -- Curseur pour les articles de la livraison
+    CURSOR c_livraison_items IS
+        SELECT p.ref_produit,
+               p.nom_produit,
+               p.marque,
+               lcp.quantite_livree,
+               lcp.no_commande,
+               c.date_commande
+        FROM Livraison_Commande_Produit lcp
+        JOIN Commande_Produit cp ON cp.no_produit = lcp.no_produit
+        JOIN Produit p ON p.ref_produit = cp.no_produit
+        JOIN Commande c ON c.no_commande = lcp.no_commande
+        WHERE lcp.no_livraison = p_no_livraison;
 
 BEGIN
-    --Interrogation de la base de donn.es
-        SELECT Client.nom, Client.prenom, Client.telephone, Adresse.id_adresse, Adresse.no_civique, Adresse.nom_rue, Adresse.ville,
-        Adresse.pays, Adresse.code_postal, Livraison.no_livraison, Livraison.date_livraison, Produit.ref_produit,
-        Produit.nom_produit, Produit.marque, Livraison_Commande_Produit.quantite_livree, Livraison_Commande_Produit.no_commande,
-        Commande.date_commande
-        INTO v_nom_client, v_prenom_client, v_telephone_client, v_id_adresse, v_no_civique, v_nom_rue, v_ville, v_pays,
-        v_code_postal, v_no_livraison, v_date_livraison, v_ref_produit, v_nom_produit, v_marque, v_quantite_livree,
-        v_no_commande, v_date_commande
-        FROM Client
-        JOIN Adresse ON Client.id_adresse = Adresse.id_adresse
-        JOIN Commande ON Client.no_client = Commande.no_client
-        JOIN Commande_Produit ON Commande.no_commande = Commande_Produit.no_commande
-        JOIN Livraison_Commande_Produit ON Commande.no_commande = Livraison_Commande_Produit.no_commande
-        JOIN Livraison ON Livraison_Commande_Produit.no_livraison = Livraison.no_livraison
-        JOIN Produit ON Commande_Produit.no_produit = Produit.ref_produit
-        WHERE Livraison.no_livraison = p_no_livraison;
-    --Exception
+    -- Interrogation de la base de données pour récupérer les informations
+    BEGIN
+        SELECT cl.nom, cl.prenom, cl.telephone, a.id_adresse, a.no_civique, a.nom_rue, a.ville,
+               a.pays, a.code_postal, l.no_livraison, l.date_livraison, p.ref_produit,
+               p.nom_produit, p.marque, lcp.quantite_livree, lcp.no_commande, c.date_commande
+        INTO v_nom_client, v_prenom_client, v_telephone_client, v_id_adresse, v_no_civique, v_nom_rue, 
+             v_ville, v_pays, v_code_postal, v_no_livraison, v_date_livraison, v_ref_produit, 
+             v_nom_produit, v_marque, v_quantite_livree, v_no_commande, v_date_commande
+        FROM Client cl
+        JOIN Adresse a ON cl.id_adresse = a.id_adresse
+        JOIN Commande c ON cl.no_client = c.no_client
+        JOIN Commande_Produit cp ON c.no_commande = cp.no_commande
+        JOIN Livraison_Commande_Produit lcp ON c.no_commande = lcp.no_commande
+        JOIN Livraison l ON lcp.no_livraison = l.no_livraison
+        JOIN Produit p ON cp.no_produit = p.ref_produit
+        WHERE l.no_livraison = p_no_livraison;
+
+        -- Affichage des informations
+        DBMS_OUTPUT.PUT_LINE('No Client: ' || RPAD(v_no_client, 20));
+        DBMS_OUTPUT.PUT_LINE('Nom: ' || RPAD(v_nom_client, 20));
+        DBMS_OUTPUT.PUT_LINE('Prenom: ' || RPAD(v_prenom_client, 20));
+        DBMS_OUTPUT.PUT_LINE('Telephone: ' || RPAD(v_telephone_client, 20));
+        DBMS_OUTPUT.PUT_LINE('Adresse: ' || v_id_adresse || ' ' || v_no_civique || ' ' || v_nom_rue || ' ' || v_ville || ' ' || v_pays || ' ' || v_code_postal);
+        DBMS_OUTPUT.PUT_LINE('No Livraison: ' || RPAD(v_no_livraison, 20));
+        DBMS_OUTPUT.PUT_LINE('Date Livraison: ' || RPAD(TO_CHAR(v_date_livraison, 'DD/MM/YYYY'), 20));
+        DBMS_OUTPUT.PUT_LINE('-------------------------------');
+        DBMS_OUTPUT.PUT_LINE('No produit      Nom Produit       Marque       Q. Livree      No CMD.     Date CMD.');
+        DBMS_OUTPUT.PUT_LINE('-------------------------------');
+
+        -- Parcours du curseur pour afficher les produits livrés
+        FOR rec IN c_livraison_items LOOP
+            DBMS_OUTPUT.PUT_LINE(RPAD(rec.ref_produit, 15) || RPAD(rec.nom_produit, 20) || RPAD(rec.marque, 15) || 
+                                 RPAD(rec.quantite_livree, 12) || RPAD(rec.no_commande, 12) || TO_CHAR(rec.date_commande, 'DD/MM/YYYY'));
+        END LOOP;
+        
+        DBMS_OUTPUT.PUT_LINE('----------------------');
+        DBMS_OUTPUT.PUT_LINE('----------------------');
+        
     EXCEPTION
-    WHEN NO_DATA_FOUND THEN
-      DBMS_OUTPUT.PUT_LINE('La livraison nexiste pas pour le numéro ' || p_no_livraison);
-      RETURN;
-END;
+        WHEN NO_DATA_FOUND THEN
+            DBMS_OUTPUT.PUT_LINE('La livraison nexiste pas pour le numéro ' || p_no_livraison);
+            RETURN;
+    END;
+END p_preparer_livraison;
 /
 
-DBMS_OUTPUT.PUT_LINE('No Client: ' || RPAD(v_no_client, 20));
-DBMS_OUTPUT.PUT_LINE('Nom: ' || RPAD(v_nom_client, 20));
-DBMS_OUTPUT.PUT_LINE('Prenom: ' || RPAD(v_prenom_client, 20));
-DBMS_OUTPUT.PUT_LINE('Telephone: ' || RPAD(v_telephone_client, 20));
-DBMS_OUTPUT.PUT_LINE('Adresse: ' || v_id_adresse || ' ' || v_no_civique || ' ' || v_nom_rue || ' ' || v_ville || ' ' || v_pays || ' ' || v_code_postal);
-DBMS_OUTPUT.PUT_LINE('No Livraison: ' || RPAD(v_no_livraison, 20));
-DBMS_OUTPUT.PUT_LINE('Date Livraison: ' || RPAD(TO_CHAR(v_date_livraison, 'DD/MM/YYYY'), 20));
-DBMS_OUTPUT.PUT_LINE('-------------------------------');
-DBMS_OUTPUT.PUT_LINE('No produit      Nom Produit       Marque       Q. Livree      No CMD.     Date CMD.');
-DBMS_OUTPUT.PUT_LINE('-------------------------------');
-FOR rec IN c_livraison_items LOOP
-        DBMS_OUTPUT.PUT_LINE(RPAD(rec.ref_produit, 15) || RPAD(rec.nom_produit, 20) || RPAD(rec.marque, 15) || 
-                RPAD(rec.quantite_livree, 12) || RPAD(rec.no_commande, 12) || TO_CHAR(rec.date_commande, 'DD/MM/YYYY'));
-END LOOP;
-DBMS_OUTPUT.PUT_LINE('----------------------');
-DBMS_OUTPUT.PUT_LINE('----------------------');
 
 -- Execution de la procédure
 EXEC p_preparer_livraison (50037);
 EXEC p_preparer_livraison (99999);
 
 -- -----------------------------------------------------------------------------
--- Question 7  
+-- Question 7  *IMCOMPLET*
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE P_produire_facture
 (p_livraison_no Livraison_Commande_Produit.no_livraison%TYPE) IS
@@ -340,6 +350,8 @@ v_FACT_Remise NUMBER(8,2);
 v_FACT_Montant_Reduit NUMBER(8,2);
 v_FACT_Taxe NUMBER(8,2);
 v_FACT_TOTAL_Restant NUMBER(8,2);
+v_FACT_DATE_fact DATE;
+v_FACT_DATE_lim DATE;
 
 CURSOR c_items_livrees IS
     SELECT Produit.ref_produit,
@@ -359,48 +371,61 @@ BEGIN
            Client.NOM,
            CLIENT.PRENOM,
            CLIENT.TELEPHONE,
-           ADDRESSE.Adresse.NO_CIVIQUE
+           Adresse.NO_CIVIQUE,Adresse.NOM_RUE,ADRESSE.VILLE,ADRESSE.PAYS,Adresse.CODE_POSTAL,
+           Livraison_Commande_Produit.NO_LIVRAISON,Livraison.DATE_LIVRAISON,Livraison.NO_LIVRAISON,
+           FACTURE.DATE_FACTURE,FACTURE.MONTANT,FACTURE.REMISE
+           INTO v_No_client,
+                v_Nom_client,
+                v_Prenom_client,
+                v_Telephone,
+                v_Add_nocivique,v_Add_nom_rue,v_Add_ville,v_Add_pays,v_Add_code_postal,
+                v_FACT_DATE_fact,v_FACT_Montant,v_FACT_Remise
+           FROM Livraison_Commande_Produit lcp
+           INNER JOIN Commande_Produit CP ON LCP.no_commande = CP.no_commande
+           INNER JOIN Commande C ON CP.no_commande = C.no_commande
+           INNER JOIN CLIENT cli ON C.no_client = cli.no_client
+           INNER JOIN ADRESSE addr ON cli.id_adresse = addr.id_adresse
+           INNER JOIN LIVRAISON l ON LCP.no_Livraison = L.NO_LIVRAISON
+           INNER JOIN FACTURE f ON l.no_livraison = f.no_livraison
+           WHERE LCP.no_livraison = p_livraison_no;
 
-        --Interrogation de la base de donn.es
-        SELECT Client.nom, Client.prenom, Client.telephone, Adresse.id_adresse, Adresse.no_civique, Adresse.nom_rue, Adresse.ville,
-        Adresse.pays, Adresse.code_postal, Livraison.no_livraison, Livraison.date_livraison, Produit.ref_produit,
-        Produit.nom_produit, Produit.marque, Livraison_Commande_Produit.quantite_livree, Livraison_Commande_Produit.no_commande,
-        Commande.date_commande
-        INTO v_nom_client, v_prenom_client, v_telephone_client, v_id_adresse, v_no_civique, v_nom_rue, v_ville, v_pays,
-        v_code_postal, v_no_livraison, v_date_livraison, v_ref_produit, v_nom_produit, v_marque, v_quantite_livree,
-        v_no_commande, v_date_commande
-        FROM Client
-        JOIN Adresse ON Client.id_adresse = Adresse.id_adresse
-        JOIN Commande ON Client.no_client = Commande.no_client
-        JOIN Commande_Produit ON Commande.no_commande = Commande_Produit.no_commande
-        JOIN Livraison_Commande_Produit ON Commande.no_commande = Livraison_Commande_Produit.no_commande
-        JOIN Livraison ON Livraison_Commande_Produit.no_livraison = Livraison.no_livraison
-        JOIN Produit ON Commande_Produit.no_produit = Produit.ref_produit
-        WHERE Livraison.no_livraison = p_no_livraison;
-    --Exception
-    EXCEPTION
-    WHEN NO_DATA_FOUND THEN
-      DBMS_OUTPUT.PUT_LINE('La livraison nexiste pas pour le numéro ' || p_no_livraison);
-      RETURN;
+--Affichage de la facture
 
+        -- Affichage des informations
+        DBMS_OUTPUT.PUT_LINE('No Client: ' || RPAD(v_No_client, 20));
+        DBMS_OUTPUT.PUT_LINE('Nom: ' || RPAD(v_Nom_client, 20));
+        DBMS_OUTPUT.PUT_LINE('Prenom: ' || RPAD(v_Prenom_client, 20));
+        DBMS_OUTPUT.PUT_LINE('Telephone: ' || RPAD(v_Telephone, 20));
+        DBMS_OUTPUT.PUT_LINE('Adresse: ' || v_Add_nocivique || ' ' || v_Add_nom_rue || ' ' || v_Add_ville || ' ' || v_Add_pays || ' ' || v_Add_code_postal);
+        DBMS_OUTPUT.PUT_LINE('No Livraison: ' || RPAD(p_livraison_no, 20));
+        DBMS_OUTPUT.PUT_LINE('Date Livraison: ' || RPAD(TO_CHAR(v_date_livraison, 'DD/MM/YYYY'), 20));
+        DBMS_OUTPUT.PUT_LINE('-------------------------------');
+        DBMS_OUTPUT.PUT_LINE('No produit      Nom Produit       Marque       Q. Livree      No CMD.     Date CMD.');
+        DBMS_OUTPUT.PUT_LINE('-------------------------------');
 
-SELECT *  
-INTO 
-FROM 
-WHERE code_produit = produit ;
---Affichage de l'état du stock
-IF qte_stock>seuil THEN
-DBMS_OUTPUT.PUT_LINE('L''article ' || produit ||' est en
-stock');
+        -- Parcours du curseur pour afficher les produits livrés *A modifier*
+        FOR rec IN c_items_livrees LOOP
+            DBMS_OUTPUT.PUT_LINE(RPAD(rec.ref_produit, 15) || RPAD(rec.nom_produit, 20) || RPAD(rec.marque, 15) || 
+                                 RPAD(rec.quantite_livree, 12) || RPAD(rec.no_commande, 12) || TO_CHAR(rec.date_commande, 'DD/MM/YYYY'));
+        END LOOP;
+        
+        DBMS_OUTPUT.PUT_LINE('----------------------');--A ajouter la portion paiement.
+        DBMS_OUTPUT.PUT_LINE('----------------------');
+        
+
 
 END IF;
-
+        --Exception
+            EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+            DBMS_OUTPUT.PUT_LINE('La livraison nexiste pas pour le numéro ' || p_no_livraison);
+            RETURN;
 
 END;
 
 
 -- -----------------------------------------------------------------------------
--- Question 8
+-- Question 8 *IMCOMPLET*
 -- -----------------------------------------------------------------------------
 
 
