@@ -84,17 +84,116 @@ SELECT * FROM PRODUIT;
 -- Question 3-A
 -- -----------------------------------------------------------------------------
 
+CREATE OR REPLACE TRIGGER TRG_statistique_vente
+AFTER INSERT ON Livraison_Commande_Produit
+FOR EACH ROW
+DECLARE
+    v_code_mois NUMBER(2);
+BEGIN
+    SELECT TO_CHAR(SYSDATE, 'MM') INTO v_code_mois FROM DUAL;
+
+    MERGE INTO Statistique_Vente sv
+    USING (SELECT :NEW.no_produit AS ref_produit, v_code_mois AS code_mois FROM DUAL) src
+
+    ON (sv.ref_produit = src.ref_produit AND sv.code_mois = src.code_mois)
+    WHEN MATCHED THEN
+        UPDATE SET sv.quantite_vendue = sv.quantite_vendue + :NEW.QUANTITE_LIVREE
+    WHEN NOT MATCHED THEN
+        INSERT (ref_produit, code_mois, quantite_vendue)
+        VALUES (:NEW.no_produit, v_code_mois, :NEW.quantite_livree);
+    
+END;
       
 -- -----------------------------------------------------------------------------
 -- Question 3-B
 -- -----------------------------------------------------------------------------
+CREATE OR REPLACE PROCEDURE creer_livraison_37 IS
+    v_stock_disponible NUMBER;
+    v_produit VARCHAR2(26);
+    v_quantite_a_livrer NUMBER;
+    erreur_stock EXCEPTION; 
 
+    CURSOR cur_produits IS
+        SELECT no_produit, quantite_cmd
+        FROM Commande_Produit
+        WHERE no_commande = 37;
 
+BEGIN
+    SAVEPOINT debut_livraison;
+    INSERT INTO Livraison (no_livraison, date_livraison)
+    VALUES (50037, SYSDATE);
+
+    FOR rec IN cur_produits LOOP
+        v_produit := rec.no_produit;
+        v_quantite_a_livrer := rec.quantite_cmd;
+        SELECT quantite_stock INTO v_stock_disponible
+        FROM Produit
+        WHERE ref_produit = v_produit;
+
+        IF v_stock_disponible < v_quantite_a_livrer THEN
+            RAISE erreur_stock;
+        END IF;
+
+        INSERT INTO Livraison_Commande_Produit (no_livraison, no_commande, no_produit, quantite_livree)
+        VALUES (50037, 37, v_produit, v_quantite_a_livrer);
+        UPDATE Produit
+        SET quantite_stock = quantite_stock - v_quantite_a_livrer
+        WHERE ref_produit = v_produit;
+    END LOOP;
+
+    COMMIT;
+    DBMS_OUTPUT.PUT_LINE('Livraison 50037 créée avec succès !');
+
+EXCEPTION
+    WHEN erreur_stock THEN
+        ROLLBACK TO debut_livraison;
+        DBMS_OUTPUT.PUT_LINE('Échec de la livraison : stock insuffisant pour le produit ' || v_produit);
+    WHEN OTHERS THEN
+        ROLLBACK TO debut_livraison;
+        DBMS_OUTPUT.PUT_LINE('Une erreur inattendue est survenue : ' || SQLERRM);
+END creer_livraison_37;
 
 -- -----------------------------------------------------------------------------
 -- Question 4
 -- -----------------------------------------------------------------------------
 
+CREATE OR REPLACE FUNCTION f_quantite_deja_livree(
+    p_no_produit IN Livraison_Commande_Produit.no_produit%TYPE,
+    p_no_commande IN Commande.no_commande%TYPE
+) RETURN NUMBER IS
+    v_quantite NUMBER := 0;
+BEGIN
+    SELECT NVL(SUM(quantite_livree), -1)
+    INTO v_quantite
+    FROM Livraison_Commande_Produit LCP
+    JOIN Livraison L ON LCP.no_livraison = L.no_livraison
+    JOIN Commande C ON C.no_commande = p_no_commande
+    WHERE LCP.no_produit = p_no_produit
+    AND C.no_commande = p_no_commande;
+
+    RETURN v_quantite;
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        RETURN -1;
+    WHEN OTHERS THEN
+        RETURN -1;
+END f_quantite_deja_livree;
+
+
+
+-- TESTS
+
+BEGIN
+    creer_livraison_37;
+END;
+
+SELECT * FROM Livraison WHERE no_livraison = 50037;
+
+-- Deja livrée
+SELECT f_quantite_deja_livree('PC2000', 37) FROM DUAL;
+
+-- Produit existe pas
+SELECT f_quantite_deja_livree('ABC123', 37) FROM DUAL;
 
 
 -- -----------------------------------------------------------------------------
