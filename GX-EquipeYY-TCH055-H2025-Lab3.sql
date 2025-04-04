@@ -1,13 +1,8 @@
 -- ===================================================================
 -- Authors : M'hamed Battioui, Pablo Gomez Montero, Ekrem Yoruk, Marc Lampron
 -- 
--- Description :
+-- Description : Laboratoire 3
 --
--- |  |  |  |  |  |
--- |  |  |  |  |  |
--- |  |  |  |  |  |
--- |  |  |  |  |  |
-
 -- ====================================================================
 
 -- -----------------------------------------------------------------------------
@@ -235,7 +230,7 @@ EXEC p_Etat_Stock ( '05W34', 100);
 SET  SERVEROUTPUT ON;
 
 CREATE OR REPLACE PROCEDURE p_preparer_livraison
-(Livraison_Commande_Produit p_no_livraison IN NUMBER) IS
+(Livraison_Commande_Produit p_no_livraison NUMBER) IS
 
 --Déclarations de variables
 v_nom_client   VARCHAR2(30);
@@ -320,27 +315,87 @@ EXEC p_preparer_livraison (99999);
 -- Question 7  
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE P_produire_facture
-(facture Produit.code_produit%TYPE,
-seuil NUMBER) IS
+(p_livraison_no Livraison_Commande_Produit.no_livraison%TYPE) IS
 -- Déclarations de variables
-qte_stock NUMBER(10); --la quantité en stocke de produit
+
+v_No_client VARCHAR2(5); -- informations du client dans le recu
+v_Nom_client VARCHAR2(30);
+v_Prenom_client VARCHAR2(30);
+v_Telephone VARCHAR2(15);
+
+v_Add_nocivique NUMBER(6);--les parties de l'addresse.
+v_Add_nom_rue VARCHAR2(20);
+v_Add_ville VARCHAR2(20);
+v_Add_pays VARCHAR2(20);
+v_Add_code_postal VARCHAR2(8);
+
+v_Comm_No_Prod VARCHAR2(6);--Informations de la livraison.
+v_Comm_Marque VARCHAR2(20);
+v_Comm_Prix NUMBER(8,2);
+v_Comm_Qte_liv NUMBER(6);
+v_Comm_Totalpartiel NUMBER(6);
+
+v_FACT_Montant NUMBER(8,2);--Information de la facture et les paiements
+v_FACT_Remise NUMBER(8,2);
+v_FACT_Montant_Reduit NUMBER(8,2);
+v_FACT_Taxe NUMBER(8,2);
+v_FACT_TOTAL_Restant NUMBER(8,2);
+
+CURSOR c_items_livrees IS
+    SELECT Produit.ref_produit,
+           Produit.nom_produit,
+           Produit.marque,
+           Produit.PRIX_UNITAIRE,
+           Livraison_Commande_Produit.quantite_livree
+    FROM Livraison_Commande_Produit LCP
+    INNER JOIN Commande_Produit CP ON LCP.no_commande = CP.no_commande
+    INNER JOIN Produit Prod ON CP.no_produit = prod.REF_PRODUIT
+    WHERE LCP.no_Livraison = p_livraison_no;
+
 BEGIN
 --Interrogation de la base de données
-SELECT quantite
-INTO qte_stock
-FROM Produit
+
+    SELECT CLIENT.no_client,
+           Client.NOM,
+           CLIENT.PRENOM,
+           CLIENT.TELEPHONE,
+           ADDRESSE.Adresse.NO_CIVIQUE
+
+        --Interrogation de la base de donn.es
+        SELECT Client.nom, Client.prenom, Client.telephone, Adresse.id_adresse, Adresse.no_civique, Adresse.nom_rue, Adresse.ville,
+        Adresse.pays, Adresse.code_postal, Livraison.no_livraison, Livraison.date_livraison, Produit.ref_produit,
+        Produit.nom_produit, Produit.marque, Livraison_Commande_Produit.quantite_livree, Livraison_Commande_Produit.no_commande,
+        Commande.date_commande
+        INTO v_nom_client, v_prenom_client, v_telephone_client, v_id_adresse, v_no_civique, v_nom_rue, v_ville, v_pays,
+        v_code_postal, v_no_livraison, v_date_livraison, v_ref_produit, v_nom_produit, v_marque, v_quantite_livree,
+        v_no_commande, v_date_commande
+        FROM Client
+        JOIN Adresse ON Client.id_adresse = Adresse.id_adresse
+        JOIN Commande ON Client.no_client = Commande.no_client
+        JOIN Commande_Produit ON Commande.no_commande = Commande_Produit.no_commande
+        JOIN Livraison_Commande_Produit ON Commande.no_commande = Livraison_Commande_Produit.no_commande
+        JOIN Livraison ON Livraison_Commande_Produit.no_livraison = Livraison.no_livraison
+        JOIN Produit ON Commande_Produit.no_produit = Produit.ref_produit
+        WHERE Livraison.no_livraison = p_no_livraison;
+    --Exception
+    EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+      DBMS_OUTPUT.PUT_LINE('La livraison nexiste pas pour le numéro ' || p_no_livraison);
+      RETURN;
+
+
+SELECT *  
+INTO 
+FROM 
 WHERE code_produit = produit ;
 --Affichage de l'état du stock
 IF qte_stock>seuil THEN
 DBMS_OUTPUT.PUT_LINE('L''article ' || produit ||' est en
 stock');
-ELSIF qte_stock>0 THEN
-DBMS_OUTPUT.PUT_LINE('L''article ' || produit ||' est
-bientôt en rupture de stock');
-ELSE
-DBMS_OUTPUT.PUT_LINE('L''article ' || produit ||' est en
-rupture de stock');
+
 END IF;
+
+
 END;
 
 
