@@ -389,16 +389,27 @@ BEGIN
            INNER JOIN FACTURE f ON l.no_livraison = f.no_livraison
            WHERE LCP.no_livraison = p_livraison_no;
 
+           v_FACT_DATE_lim := v_FACT_DATE_fact + 30 ; --Définition de la variable pour la date limite de Paiement.
+
+           --Affectation du montant réduit:
+           v_FACT_Montant_Reduit := v_FACT_Montant - v_FACT_Remise;
+           --Affectation du montant du taxe du montant réduit: 
+           v_FACT_Taxe := v_FACT_Montant_Reduit * 0.15;
+           --Affectation du montant total final après remise
+           v_FACT_TOTAL_Restant := v_FACT_Montant_Reduit + v_FACT_Taxe;
+
+
 --Affichage de la facture
 
         -- Affichage des informations
         DBMS_OUTPUT.PUT_LINE('No Client: ' || RPAD(v_No_client, 20));
-        DBMS_OUTPUT.PUT_LINE('Nom: ' || RPAD(v_Nom_client, 20));
-        DBMS_OUTPUT.PUT_LINE('Prenom: ' || RPAD(v_Prenom_client, 20));
+        DBMS_OUTPUT.PUT_LINE('Nom      : ' || RPAD(v_Nom_client, 20));
+        DBMS_OUTPUT.PUT_LINE('Prenom   : ' || RPAD(v_Prenom_client, 20));
         DBMS_OUTPUT.PUT_LINE('Telephone: ' || RPAD(v_Telephone, 20));
-        DBMS_OUTPUT.PUT_LINE('Adresse: ' || v_Add_nocivique || ' ' || v_Add_nom_rue || ' ' || v_Add_ville || ' ' || v_Add_pays || ' ' || v_Add_code_postal);
-        DBMS_OUTPUT.PUT_LINE('No Livraison: ' || RPAD(p_livraison_no, 20));
+        DBMS_OUTPUT.PUT_LINE('Adresse  : ' || v_Add_nocivique || ' ' || v_Add_nom_rue || ' ' || v_Add_ville || ' ' || v_Add_pays || ' ' || v_Add_code_postal);
+        DBMS_OUTPUT.PUT_LINE('No Livraison  : ' || RPAD(p_livraison_no, 20));
         DBMS_OUTPUT.PUT_LINE('Date Livraison: ' || RPAD(TO_CHAR(v_date_livraison, 'DD/MM/YYYY'), 20));
+        DBMS_OUTPUT.PUT_LINE('Date Limite Paiement: ' || RPAD(TO_CHAR(DATEADD())))
         DBMS_OUTPUT.PUT_LINE('-------------------------------');
         DBMS_OUTPUT.PUT_LINE('No produit      Nom Produit       Marque       Q. Livree      No CMD.     Date CMD.');
         DBMS_OUTPUT.PUT_LINE('-------------------------------');
@@ -408,11 +419,12 @@ BEGIN
             DBMS_OUTPUT.PUT_LINE(RPAD(rec.ref_produit, 15) || RPAD(rec.nom_produit, 20) || RPAD(rec.marque, 15) || 
                                  RPAD(rec.quantite_livree, 12) || RPAD(rec.no_commande, 12) || TO_CHAR(rec.date_commande, 'DD/MM/YYYY'));
         END LOOP;
-        
-        DBMS_OUTPUT.PUT_LINE('----------------------');--A ajouter la portion paiement.
-        DBMS_OUTPUT.PUT_LINE('----------------------');
-        
 
+        DBMS_OUTPUT.PUT_LINE('Montant        : ' || v_FACT_Montant);--la portion facture.
+        DBMS_OUTPUT.PUT_LINE('Remise         : ' || v_FACT_Remise);
+        DBMS_OUTPUT.PUT_LINE('Montant Reduit : ' || v_FACT_Montant_Reduit);
+        DBMS_OUTPUT.PUT_LINE('Taxe           : ' || v_FACT_Taxe);
+        DBMS_OUTPUT.PUT_LINE('Total à payer  : ' || v_FACT_TOTAL_Restant);
 
 END IF;
         --Exception
@@ -421,11 +433,32 @@ END IF;
             DBMS_OUTPUT.PUT_LINE('La livraison nexiste pas pour le numéro ' || p_no_livraison);
             RETURN;
 
-END;
+    END;
+END P_produire_facture;
+/
 
 
 -- -----------------------------------------------------------------------------
 -- Question 8 *IMCOMPLET*
 -- -----------------------------------------------------------------------------
 
+CREATE OR REPLACE PROCEDURE P_Afficher_facture
+(p_id_dacture Facture.id_facture%TYPE) IS
 
+BEGIN
+
+        -- Parcours du curseur pour afficher les produits livrés *A modifier*
+        FOR rec IN c_items_livrees LOOP
+            DBMS_OUTPUT.PUT_LINE(RPAD(rec.ref_produit, 15) || RPAD(rec.nom_produit, 20) || RPAD(rec.marque, 15) || 
+                                 RPAD(rec.quantite_livree, 12) || RPAD(rec.no_commande, 12) || TO_CHAR(rec.date_commande, 'DD/MM/YYYY'));
+        END LOOP;
+
+                --Exception
+            EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+            DBMS_OUTPUT.PUT_LINE('La livraison nexiste pas pour le numéro ' || p_no_livraison);
+            RETURN;
+
+    END;
+END P_Afficher_facture;
+/
