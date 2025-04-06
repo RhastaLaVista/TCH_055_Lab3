@@ -158,7 +158,7 @@ CREATE OR REPLACE FUNCTION f_quantite_deja_livree(
 ) RETURN NUMBER IS
     v_quantite NUMBER := 0;
 BEGIN
-    SELECT NVL(SUM(quantite_livree), -1)
+    SELECT NVL(SUM(quantite_livree), 0)
     INTO v_quantite
     FROM Livraison_Commande_Produit LCP
     JOIN Livraison L ON LCP.no_livraison = L.no_livraison
@@ -198,34 +198,38 @@ SELECT f_quantite_deja_livree('ABC123', 37) FROM DUAL;
 SET  SERVEROUTPUT ON;
 
 CREATE OR REPLACE PROCEDURE p_afficher_livraisons_clients IS
-    
     CURSOR c_commandes IS
         SELECT Commande.no_commande, Commande.no_client
         FROM Commande;
 
     v_quantite_livree NUMBER;
+    
 
 BEGIN
+
     FOR commande_rec IN c_commandes LOOP
 
-        FOR produit_rec IN
-            SELECT p.ref_produit, p.designation, Commande_Produit.quantite_commandee
+        FOR produit_rec IN 
+        
+        (SELECT p.ref_produit, Commande_Produit.quantite_cmd
             FROM Commande_Produit Commande_Produit
             JOIN Produit p ON Commande_Produit.no_produit = p.ref_produit
-            WHERE Commande_Produit.no_commande = commande_rec.no_commande
+            WHERE Commande_Produit.no_commande = commande_rec.no_commande)
+            
         LOOP
             v_quantite_livree := f_quantite_deja_livree(produit_rec.ref_produit, commande_rec.no_commande);
             
             DBMS_OUTPUT.PUT_LINE('Client: ' || commande_rec.no_client || 
                                  ', Commande N°: ' || commande_rec.no_commande || 
                                  ', Produit: ' || produit_rec.ref_produit || 
-                                 ', ' || produit_rec.designation || 
-                                 ', Quantité Commandée: ' || produit_rec.quantite_commandee ||
+                                 ', Quantité Commandée: ' || produit_rec.quantite_cmd ||
                                  ', Quantité Livrée: ' || v_quantite_livree);
         END LOOP;
     END LOOP;
 END p_afficher_livraisons_clients;
 /
+
+EXEC p_afficher_livraisons_clients;
 
 -- -----------------------------------------------------------------------------
 -- Question 6
@@ -234,8 +238,8 @@ END p_afficher_livraisons_clients;
 CREATE OR REPLACE PROCEDURE p_preparer_livraison (
     p_no_livraison IN NUMBER
 ) IS
-
     -- Déclarations de variables
+    v_no_client NUMBER(5);
     v_nom_client   VARCHAR2(30);
     v_prenom_client VARCHAR2(30);
     v_telephone_client VARCHAR2(15);
@@ -271,7 +275,6 @@ CREATE OR REPLACE PROCEDURE p_preparer_livraison (
 
 BEGIN
     -- Interrogation de la base de données pour récupérer les informations
-    BEGIN
         SELECT cl.nom, cl.prenom, cl.telephone, a.id_adresse, a.no_civique, a.nom_rue, a.ville,
                a.pays, a.code_postal, l.no_livraison, l.date_livraison, p.ref_produit,
                p.nom_produit, p.marque, lcp.quantite_livree, lcp.no_commande, c.date_commande
@@ -312,7 +315,6 @@ BEGIN
         WHEN NO_DATA_FOUND THEN
             DBMS_OUTPUT.PUT_LINE('La livraison nexiste pas pour le numéro ' || p_no_livraison);
             RETURN;
-    END;
 END p_preparer_livraison;
 /
 
@@ -322,10 +324,34 @@ EXEC p_preparer_livraison (50037);
 EXEC p_preparer_livraison (99999);
 
 -- -----------------------------------------------------------------------------
--- Question 7  *IMCOMPLET*
+-- Question 7
 -- -----------------------------------------------------------------------------
+SET SERVEROUTPUT ON;
+
+CREATE SEQUENCE dept_seq
+INCREMENT BY 1
+START WITH 1
+MAXVALUE 99999
+NOCYCLE
+CACHE 10;
+
+CREATE OR REPLACE TRIGGER dep_ins_trig 
+BEFORE INSERT ON FACTURE 
+FOR EACH ROW
+
+BEGIN
+  SELECT dept_seq.NEXTVAL
+  INTO   :new.id_facture
+  FROM   dual;
+END;
+/
+
 CREATE OR REPLACE PROCEDURE P_produire_facture
-(p_livraison_no Livraison_Commande_Produit.no_livraison%TYPE) IS
+(p_livraison_no in NUMBER, montant_remise in NUMBER) IS
+-- gestion parametre
+remise_trop_haut EXCEPTION;
+
+
 -- Déclarations de variables
 
 v_No_client VARCHAR2(5); -- informations du client dans le recu
@@ -333,7 +359,7 @@ v_Nom_client VARCHAR2(30);
 v_Prenom_client VARCHAR2(30);
 v_Telephone VARCHAR2(15);
 
-v_Add_nocivique NUMBER(6);--les parties de l'addresse.
+v_Add_nocivique NUMBER(6) := 0;--les parties de l'addresse.
 v_Add_nom_rue VARCHAR2(20);
 v_Add_ville VARCHAR2(20);
 v_Add_pays VARCHAR2(20);
@@ -341,65 +367,73 @@ v_Add_code_postal VARCHAR2(8);
 
 v_Comm_No_Prod VARCHAR2(6);--Informations de la livraison.
 v_Comm_Marque VARCHAR2(20);
-v_Comm_Prix NUMBER(8,2);
-v_Comm_Qte_liv NUMBER(6);
-v_Comm_Totalpartiel NUMBER(6);
+v_Comm_Prix NUMBER(8,2) := 0 ;
+v_Comm_qte NUMBER(6) := 0 ;
+v_Comm_Totalpartiel NUMBER(6):= 0 ;
+v_Comm_Remise NUMBER(10) := 0;
 
-v_FACT_Montant NUMBER(8,2);--Information de la facture et les paiements
-v_FACT_Remise NUMBER(8,2);
-v_FACT_Montant_Reduit NUMBER(8,2);
-v_FACT_Taxe NUMBER(8,2);
-v_FACT_TOTAL_Restant NUMBER(8,2);
+v_FACT_Montant NUMBER(8,2):=0;--Information de la facture et les paiements
+v_FACT_Remise NUMBER(8,2):=0;
+v_FACT_Montant_Reduit NUMBER(8,2) :=0 ;
+v_FACT_Taxe NUMBER(8,2):=0;
+v_FACT_TOTAL_Restant NUMBER(8,2):=0;
+v_FACT_DATE_LIV DATE;
 v_FACT_DATE_fact DATE;
 v_FACT_DATE_lim DATE;
 
+
 CURSOR c_items_livrees IS
-    SELECT Produit.ref_produit,
-           Produit.nom_produit,
-           Produit.marque,
-           Produit.PRIX_UNITAIRE,
-           Livraison_Commande_Produit.quantite_livree
+    SELECT Prod.ref_produit,
+           Prod.nom_produit,
+           Prod.marque,
+           Prod.PRIX_UNITAIRE,
+           LCP.quantite_livree,
+           CP.quantite_cmd
+           --Promotion.reduction
     FROM Livraison_Commande_Produit LCP
     INNER JOIN Commande_Produit CP ON LCP.no_commande = CP.no_commande
     INNER JOIN Produit Prod ON CP.no_produit = prod.REF_PRODUIT
+    INNER JOIN Commande C ON CP.no_commande = C.no_commande
     WHERE LCP.no_Livraison = p_livraison_no;
 
 BEGIN
+    
 --Interrogation de la base de données
+IF montant_remise < 0 OR montant_remise > 20 THEN
+    RAISE remise_trop_haut;
+END IF;
 
-    SELECT CLIENT.no_client,
-           Client.NOM,
-           CLIENT.PRENOM,
-           CLIENT.TELEPHONE,
-           Adresse.NO_CIVIQUE,Adresse.NOM_RUE,ADRESSE.VILLE,ADRESSE.PAYS,Adresse.CODE_POSTAL,
-           Livraison_Commande_Produit.NO_LIVRAISON,Livraison.DATE_LIVRAISON,Livraison.NO_LIVRAISON,
-           FACTURE.DATE_FACTURE,FACTURE.MONTANT,FACTURE.REMISE
+    SELECT cli.no_client,
+           cli.NOM,
+           cli.PRENOM,
+           cli.TELEPHONE,
+           addr.NO_CIVIQUE,
+           addr.NOM_RUE,
+           addr.VILLE,
+           addr.PAYS,
+           addr.CODE_POSTAL,
+           l.DATE_LIVRAISON
            INTO v_No_client,
                 v_Nom_client,
                 v_Prenom_client,
                 v_Telephone,
-                v_Add_nocivique,v_Add_nom_rue,v_Add_ville,v_Add_pays,v_Add_code_postal,
-                v_FACT_DATE_fact,v_FACT_Montant,v_FACT_Remise
-           FROM Livraison_Commande_Produit lcp
+                v_Add_nocivique,
+                v_Add_nom_rue,
+                v_Add_ville,
+                v_Add_pays,
+                v_Add_code_postal,
+                V_FACT_DATE_LIV
+           FROM livraison l
+           INNER JOIN LIVRAISON_COMMANDE_PRODUIT LCP ON LCP.NO_LIVRAISON = L.NO_LIVRAISON
            INNER JOIN Commande_Produit CP ON LCP.no_commande = CP.no_commande
            INNER JOIN Commande C ON CP.no_commande = C.no_commande
            INNER JOIN CLIENT cli ON C.no_client = cli.no_client
            INNER JOIN ADRESSE addr ON cli.id_adresse = addr.id_adresse
-           INNER JOIN LIVRAISON l ON LCP.no_Livraison = L.NO_LIVRAISON
-           INNER JOIN FACTURE f ON l.no_livraison = f.no_livraison
-           WHERE LCP.no_livraison = p_livraison_no;
+           WHERE l.no_livraison = p_livraison_no;
+           
 
+           v_FACT_DATE_fact := SYSDATE;
            v_FACT_DATE_lim := v_FACT_DATE_fact + 30 ; --Définition de la variable pour la date limite de Paiement.
-
-           --Affectation du montant réduit:
-           v_FACT_Montant_Reduit := v_FACT_Montant - v_FACT_Remise;
-           --Affectation du montant du taxe du montant réduit: 
-           v_FACT_Taxe := v_FACT_Montant_Reduit * 0.15;
-           --Affectation du montant total final après remise
-           v_FACT_TOTAL_Restant := v_FACT_Montant_Reduit + v_FACT_Taxe;
-
-
---Affichage de la facture
 
         -- Affichage des informations
         DBMS_OUTPUT.PUT_LINE('No Client: ' || RPAD(v_No_client, 20));
@@ -408,17 +442,35 @@ BEGIN
         DBMS_OUTPUT.PUT_LINE('Telephone: ' || RPAD(v_Telephone, 20));
         DBMS_OUTPUT.PUT_LINE('Adresse  : ' || v_Add_nocivique || ' ' || v_Add_nom_rue || ' ' || v_Add_ville || ' ' || v_Add_pays || ' ' || v_Add_code_postal);
         DBMS_OUTPUT.PUT_LINE('No Livraison  : ' || RPAD(p_livraison_no, 20));
-        DBMS_OUTPUT.PUT_LINE('Date Livraison: ' || RPAD(TO_CHAR(v_date_livraison, 'DD/MM/YYYY'), 20));
-        DBMS_OUTPUT.PUT_LINE('Date Limite Paiement: ' || RPAD(TO_CHAR(DATEADD())))
+        DBMS_OUTPUT.PUT_LINE('Date Livraison: ' || RPAD(TO_CHAR(v_FACT_DATE_LIV, 'DD/MM/YYYY'), 20));
+        DBMS_OUTPUT.PUT_LINE('Date Limite Paiement: ' || RPAD(TO_CHAR(v_FACT_DATE_lim), 20));
         DBMS_OUTPUT.PUT_LINE('-------------------------------');
-        DBMS_OUTPUT.PUT_LINE('No produit      Nom Produit       Marque       Q. Livree      No CMD.     Date CMD.');
+        DBMS_OUTPUT.PUT_LINE('No produit      Nom Produit       Marque       Quantité      Total Partiel');
         DBMS_OUTPUT.PUT_LINE('-------------------------------');
 
-        -- Parcours du curseur pour afficher les produits livrés *A modifier*
+        -- Parcours du curseur pour afficher les produits livrés et la logique de la facture.
         FOR rec IN c_items_livrees LOOP
-            DBMS_OUTPUT.PUT_LINE(RPAD(rec.ref_produit, 15) || RPAD(rec.nom_produit, 20) || RPAD(rec.marque, 15) || 
-                                 RPAD(rec.quantite_livree, 12) || RPAD(rec.no_commande, 12) || TO_CHAR(rec.date_commande, 'DD/MM/YYYY'));
+
+            v_Comm_Totalpartiel := rec.prix_unitaire * rec.quantite_cmd;-- calcul du montant partiel
+
+            --v_Comm_Remise := v_Comm_Remise + (v_Comm_Totalpartiel*montant_remise); --calcul du rabais total(selon promotion)
+
+            v_FACT_Montant := v_FACT_Montant + v_Comm_Totalpartiel;-- accumulation du montant
+
+            DBMS_OUTPUT.PUT_LINE(RPAD(rec.ref_produit, 15) || RPAD(rec.nom_produit, 20) || RPAD(rec.marque, 20) || 
+                                 RPAD(rec.quantite_cmd, 12) || RPAD(V_Comm_Totalpartiel, 20));
         END LOOP;
+           
+           --Affectation du rabais total:
+           v_FACT_Remise := v_FACT_Montant*(montant_remise/100);
+           --Affectation du montant réduit:
+           v_FACT_Montant_Reduit := v_FACT_Montant - v_FACT_Remise;
+           --Affectation du montant du taxe du montant réduit: 
+           v_FACT_Taxe := v_FACT_Montant_Reduit * 0.15;
+           --Affectation du montant total final après remise
+           v_FACT_TOTAL_Restant := v_FACT_Montant_Reduit + v_FACT_Taxe;
+
+           --avant je croyais que la remise était déterminé par les rabais dans promotion donc il se peut que sa trace reste.
 
         DBMS_OUTPUT.PUT_LINE('Montant        : ' || v_FACT_Montant);--la portion facture.
         DBMS_OUTPUT.PUT_LINE('Remise         : ' || v_FACT_Remise);
@@ -426,39 +478,101 @@ BEGIN
         DBMS_OUTPUT.PUT_LINE('Taxe           : ' || v_FACT_Taxe);
         DBMS_OUTPUT.PUT_LINE('Total à payer  : ' || v_FACT_TOTAL_Restant);
 
-END IF;
+        INSERT INTO Facture(remise,date_facture,montant,taxe)
+        VALUES (v_Comm_Remise,v_FACT_DATE_fact,v_FACT_Montant,v_FACT_Taxe);
+
         --Exception
             EXCEPTION
             WHEN NO_DATA_FOUND THEN
-            DBMS_OUTPUT.PUT_LINE('La livraison nexiste pas pour le numéro ' || p_no_livraison);
+            DBMS_OUTPUT.PUT_LINE('La livraison nexiste pas pour le numéro.' || p_livraison_no);
             RETURN;
 
-    END;
+            WHEN remise_trop_haut THEN
+                DBMS_OUTPUT.PUT_LINE('le montant remise doit etre entre 0 et 20.');
+            RETURN;
+
 END P_produire_facture;
 /
 
 
+EXEC P_produire_facture(50023,10);
+SELECT * FROM LIVRAISON;
 -- -----------------------------------------------------------------------------
--- Question 8 *IMCOMPLET*
+-- Question 8 *IMCOMPLET* * TO BE TESTED
 -- -----------------------------------------------------------------------------
 
 CREATE OR REPLACE PROCEDURE P_Afficher_facture
-(p_id_dacture Facture.id_facture%TYPE) IS
+(p_id_facture IN NUMBER) IS
+
+v_Montant_Apayer number(8,2) := 0 ;
+v_Montant_dejapaye number(8,2) := 0 ;
+v_Montant_restant number(8,2) := 0 ;
+v_Paiement_Dlim DATE;-- := datefacturation + 30
+
+v_Montant_Facture number(8,2) :=0 ;
+v_remise_Facture number(8,2) :=0 ;
+v_taxe_Facture number(8,2) :=0 ;
+v_Date_Facture DATE;
+
+v_Montant_Reduit_Facture NUMBER(8,2) :=0;
+
+CURSOR c_items_livrees IS
+    SELECT pay.montant
+    FROM Paiement pay
+    INNER JOIN Facture fac ON pay.id_facture = fac.id_facture
+    WHERE Fac.id_Facture = p_id_facture;
 
 BEGIN
+        -- Interrogation de la base de donnée
+        SELECT Facture.date_facture,
+               Facture.MONTANT,
+               Facture.TAXE,
+               Facture.remise
+               INTO v_Date_Facture,
+                    v_Montant_Facture,
+                    v_taxe_Facture,
+                    v_remise_Facture
+        FROM Facture
+        WHERE id_facture = p_id_facture;
+           
+           --Affectation du montant réduit:
+           v_Montant_Reduit_Facture := v_Montant_Facture - v_remise_Facture;
+           --Affectation du montant du taxe du montant réduit: 
+           v_taxe_Facture := v_Montant_Reduit_Facture * 0.15;
+           --Affectation du montant total final après remise
+           v_Montant_Apayer := v_Montant_Reduit_Facture + v_taxe_Facture;
+
+        --affectation du montant à payer (montant total - totalremise) + ((montant total - totalremise)*taxe)
+        v_Montant_Apayer := v_Montant_Facture + v_taxe_Facture;
+
+        FOR rec IN c_items_livrees LOOP
+        v_Montant_dejapaye := v_Montant_dejapaye + rec.montant; --affectation du montant déjapayée (somme du montant des paiements sur la même facture
+        END LOOP;
+        
+        --affectation du montant restant à payer
+        v_Montant_restant := v_Montant_Apayer - v_Montant_dejapaye;
+
+        v_Paiement_Dlim := v_Date_Facture + 30;
 
         -- Parcours du curseur pour afficher les produits livrés *A modifier*
-        FOR rec IN c_items_livrees LOOP
-            DBMS_OUTPUT.PUT_LINE(RPAD(rec.ref_produit, 15) || RPAD(rec.nom_produit, 20) || RPAD(rec.marque, 15) || 
-                                 RPAD(rec.quantite_livree, 12) || RPAD(rec.no_commande, 12) || TO_CHAR(rec.date_commande, 'DD/MM/YYYY'));
-        END LOOP;
+        DBMS_OUTPUT.PUT_LINE('Montant à payer    : ' || v_Montant_Apayer || ' $');
+        DBMS_OUTPUT.PUT_LINE('Montant déja payé  : ' || v_Montant_dejapaye || ' $');
+        DBMS_OUTPUT.PUT_LINE('Montant restant à payer: ' || v_Montant_restant || ' $');
 
-                --Exception
-            EXCEPTION
-            WHEN NO_DATA_FOUND THEN
-            DBMS_OUTPUT.PUT_LINE('La livraison nexiste pas pour le numéro ' || p_no_livraison);
+        IF v_Montant_restant = 0 THEN
+        DBMS_OUTPUT.PUT_LINE('Paiement completée');--La partie d`évaluation du paiement
+        ELSE 
+        DBMS_OUTPUT.PUT_LINE('Paiement non completé-Solde en souffrance : Date limite de paiement: '|| TO_CHAR(v_Paiement_Dlim,'DD-MM-YYYY'));
+        END IF;
+
+        EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            DBMS_OUTPUT.PUT_LINE('La facture n`existe pas' || p_id_facture);
             RETURN;
 
-    END;
+    
 END P_Afficher_facture;
 /
+
+EXEC P_Afficher_facture(60021);
+EXEC P_Afficher_facture(60023);
