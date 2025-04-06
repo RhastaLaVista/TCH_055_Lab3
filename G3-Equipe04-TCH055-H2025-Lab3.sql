@@ -158,7 +158,7 @@ CREATE OR REPLACE FUNCTION f_quantite_deja_livree(
 ) RETURN NUMBER IS
     v_quantite NUMBER := 0;
 BEGIN
-    SELECT NVL(SUM(quantite_livree), 0)
+    SELECT NVL(SUM(quantite_livree), -1)
     INTO v_quantite
     FROM Livraison_Commande_Produit LCP
     JOIN Livraison L ON LCP.no_livraison = L.no_livraison
